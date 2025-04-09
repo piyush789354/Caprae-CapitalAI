@@ -1,0 +1,76 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import re
+import urllib.parse
+
+def search_official_site(query):
+    search_url = f"https://duckduckgo.com/html/?q={query.replace(' ', '+')}+official+site"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(search_url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    results = soup.find_all('a', class_='result__a')
+    for result in results:
+        href = result.get('href')
+        if 'uddg=' in href:
+            try:
+                encoded_url = href.split('uddg=')[1].split('&')[0]
+                return urllib.parse.unquote(encoded_url)
+            except:
+                continue
+    return None
+
+def find_emails(content):
+    return list(set(re.findall(r"[\w\.-]+@[\w\.-]+", content)))
+
+def is_decision_maker(email, roles=["ceo", "founder", "cto", "cmo", "vp"]):
+    return any(role in email.lower() for role in roles)
+
+def generate_leads(companies):
+    leads = []
+    for company in companies:
+        print(f"Analyzing: {company}")
+        website = search_official_site(company)
+        if not website:
+            print(f"No valid website found for {company}")
+            continue
+
+        try:
+            page = requests.get(website, timeout=5)
+            emails = find_emails(page.text)
+        except Exception as e:
+            print(f"Error accessing {website}: {e}")
+            emails = []
+
+        for email in emails:
+            score = 85 if is_decision_maker(email) else 50
+            leads.append({
+                "company": company,
+                "domain": website,
+                "contact": email,
+                "lead_score": score
+            })
+
+    return pd.DataFrame(leads)
+
+if __name__ == "__main__":
+    targets = [
+        "Amplitude",
+        "Miro",
+        "Loom",
+        "Segment",
+        "Linear"
+    ]
+    output_df = generate_leads(targets)
+    output_file = "smartprospect_output.csv"
+    output_df.to_csv(output_file, index=False)
+
+    print("\n✔ Lead export complete: smartprospect_output.csv")
+    print("--- Report Summary ---")
+    print(f"Total Companies Analyzed: {len(targets)}")
+    print(f"Total Leads Found: {len(output_df)}")
+    if not output_df.empty:
+        print("\nSample Leads:")
+        print(output_df.head())
+    else:
+        print("No leads extracted. Consider revising target list or search strategy.")
